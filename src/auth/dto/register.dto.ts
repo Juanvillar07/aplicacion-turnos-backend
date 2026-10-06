@@ -1,11 +1,6 @@
 import { Transform } from 'class-transformer';
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsStrongPassword } from '../../common/validation/strong-password.decorator';
 
 export class RegisterDto {
   @IsString()
@@ -22,8 +17,6 @@ export class RegisterDto {
   )
   email: string;
 
-  @IsString()
-  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
-  @MaxLength(72) // límite de bcrypt
+  @IsStrongPassword()
   password: string;
 }

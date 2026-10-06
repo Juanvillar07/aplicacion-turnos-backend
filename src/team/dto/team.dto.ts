@@ -8,8 +8,8 @@ import {
   IsString,
   IsUUID,
   MaxLength,
-  MinLength,
 } from 'class-validator';
+import { IsStrongPassword } from '../../common/validation/strong-password.decorator';
 
 export class InviteMemberDto {
   @IsEmail({}, { message: 'El email no es válido' })
@@ -44,8 +44,6 @@ export class AcceptWithNewAccountDto {
   )
   name: string;
 
-  @IsString()
-  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
-  @MaxLength(72)
+  @IsStrongPassword()
   password: string;
 }

@@ -1,15 +1,6 @@
 import { Transform } from 'class-transformer';
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
-
-const PASSWORD_MIN = {
-  message: 'La contraseña debe tener al menos 8 caracteres',
-};
+import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsStrongPassword } from '../../common/validation/strong-password.decorator';
 
 export class ForgotPasswordDto {
   @IsEmail({}, { message: 'El email no es válido' })
@@ -27,9 +18,7 @@ export class TokenDto {
 }
 
 export class ResetPasswordDto extends TokenDto {
-  @IsString()
-  @MinLength(8, PASSWORD_MIN)
-  @MaxLength(72) // límite de bcrypt
+  @IsStrongPassword()
   password: string;
 }
 
@@ -38,9 +27,7 @@ export class ChangePasswordDto {
   @IsNotEmpty({ message: 'Escribe tu contraseña actual' })
   currentPassword: string;
 
-  @IsString()
-  @MinLength(8, PASSWORD_MIN)
-  @MaxLength(72) // límite de bcrypt
+  @IsStrongPassword()
   newPassword: string;
 }
 

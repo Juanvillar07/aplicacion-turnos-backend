@@ -1,0 +1,25 @@
+# Nombre fijo del proyecto: conserva el volumen "aplicacion-agenda-turnos_pgdata"
+# (si no, Docker lo nombraría según la carpeta y la base de datos empezaría vacía)
+name: aplicacion-agenda-turnos
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agenda-turnos-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agenda
+      POSTGRES_PASSWORD: agenda
+      POSTGRES_DB: agenda_turnos
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenda -d agenda_turnos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
