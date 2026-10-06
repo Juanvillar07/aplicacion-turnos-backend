@@ -1,0 +1,518 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identidad ──────────────────────────────────────────────
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  name            String
+  password        String
+  /// null = el usuario aún no confirma su correo (solo se le muestra un aviso)
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  /// Superadministrador de la plataforma (dueño del SaaS), no de un negocio.
+  /// Se asigna con `npm run superadmin -- <email>`
+  isSuperAdmin    Boolean   @default(false) @map("is_super_admin")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  memberships     Membership[]
+  resources       Resource[]
+  tokens          UserToken[]
+  invitationsSent Invitation[]
+  adminActions    AdminAction[]
+  subscriptions   Subscription[]
+
+  @@map("users")
+}
+
+enum UserTokenType {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+/// Enlaces de un solo uso enviados por correo. Solo se guarda el hash del token.
+model UserToken {
+  id        String        @id @default(uuid())
+  userId    String        @map("user_id")
+  type      UserTokenType
+  tokenHash String        @unique @map("token_hash")
+  expiresAt DateTime      @map("expires_at")
+  usedAt    DateTime?     @map("used_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("user_tokens")
+}
+
+// ─── Inquilinos (multi-tenancy de esquema compartido) ───────
+// Toda tabla de negocio lleva `businessId` y todo acceso se filtra por él.
+
+enum BusinessCategory {
+  BARBERSHOP
+  BEAUTY
+  CLINIC
+  SPORTS_COURT
+  OTHER
+}
+
+enum BusinessStatus {
+  ACTIVE
+  /// Sin reservas públicas ni bot; el panel queda en solo lectura
+  SUSPENDED
+}
+
+model Business {
+  id       String           @id @default(uuid())
+  name     String
+  slug     String           @unique
+  category BusinessCategory
+  phone    String?
+  address  String?
+  city     String?
+  timezone String           @default("America/Bogota")
+
+  // Ajustes de reserva
+  /// true: las reservas web quedan confirmadas; false: quedan pendientes
+  autoConfirm      Boolean @default(true) @map("auto_confirm")
+  /// Cada cuántos minutos se ofrece un turno
+  slotStepMinutes  Int     @default(30) @map("slot_step_minutes")
+  /// Anticipación mínima para reservar
+  minNoticeMinutes Int     @default(60) @map("min_notice_minutes")
+  /// Hasta cuántos días en el futuro se puede reservar
+  maxDaysAhead     Int     @default(30) @map("max_days_ahead")
+  /// Avisos por WhatsApp a los clientes que lo aceptaron, y reservas por el bot
+  whatsappEnabled  Boolean @default(false) @map("whatsapp_enabled")
+
+  // Estado en la plataforma (lo gestiona el superadministrador)
+  status          BusinessStatus @default(ACTIVE)
+  suspendedAt     DateTime?      @map("suspended_at")
+  /// Motivo visible para el negocio
+  suspendedReason String?        @map("suspended_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships  Membership[]
+  invitations  Invitation[]
+  services     Service[]
+  resources    Resource[]
+  customers    Customer[]
+  appointments Appointment[]
+  timeOffs     TimeOff[]
+  adminActions AdminAction[]
+  subscription Subscription?
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("businesses")
+}
+
+/// ADMIN = administrador (dueño o encargado: gestiona todo, no atiende)
+/// STAFF = profesional (atiende: tiene su columna en la agenda)
+enum MemberRole {
+  ADMIN
+  STAFF
+}
+
+model Membership {
+  id         String     @id @default(uuid())
+  userId     String     @map("user_id")
+  businessId String     @map("business_id")
+  role       MemberRole
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+  @@map("memberships")
+}
+
+// ─── Catálogo ───────────────────────────────────────────────
+
+model Service {
+  id              String   @id @default(uuid())
+  businessId      String   @map("business_id")
+  name            String
+  description     String?
+  durationMinutes Int      @map("duration_minutes")
+  /// Precio en pesos colombianos (COP), sin decimales.
+  price           Int
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  resources    ResourceService[]
+  appointments Appointment[]
+
+  @@index([businessId])
+  @@map("services")
+}
+
+// ─── Recursos: profesionales o espacios (canchas, cabinas) ──
+
+enum ResourceType {
+  PERSON
+  SPACE
+}
+
+model Resource {
+  id         String       @id @default(uuid())
+  businessId String       @map("business_id")
+  name       String
+  type       ResourceType
+  /// Cuenta del profesional, si tiene acceso al panel.
+  userId     String?      @map("user_id")
+  isActive   Boolean      @default(true) @map("is_active")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  services     ResourceService[]
+  workingHours WorkingHours[]
+  appointments Appointment[]
+  timeOffs     TimeOff[]
+  invitations  Invitation[]
+
+  @@index([businessId])
+  @@map("resources")
+}
+
+/// Invitación por correo para unirse al equipo de un negocio.
+/// Solo se guarda el hash del token del enlace.
+model Invitation {
+  id          String     @id @default(uuid())
+  businessId  String     @map("business_id")
+  email       String
+  role        MemberRole
+  /// Columna de la agenda que se vinculará a la persona al aceptar
+  resourceId  String?    @map("resource_id")
+  tokenHash   String     @unique @map("token_hash")
+  invitedById String     @map("invited_by_id")
+  expiresAt   DateTime   @map("expires_at")
+  acceptedAt  DateTime?  @map("accepted_at")
+  revokedAt   DateTime?  @map("revoked_at")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  business  Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  resource  Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  invitedBy User      @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([businessId, email])
+  @@map("invitations")
+}
+
+model ResourceService {
+  resourceId String @map("resource_id")
+  serviceId  String @map("service_id")
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([resourceId, serviceId])
+  @@map("resource_services")
+}
+
+/// Franja semanal de atención. Varias filas por día permiten turnos partidos.
+model WorkingHours {
+  id          String @id @default(uuid())
+  resourceId  String @map("resource_id")
+  /// 0 = domingo … 6 = sábado
+  dayOfWeek   Int    @map("day_of_week")
+  /// Minutos desde las 00:00 (hora local del negocio).
+  startMinute Int    @map("start_minute")
+  endMinute   Int    @map("end_minute")
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, dayOfWeek])
+  @@map("working_hours")
+}
+
+// ─── Reservas ───────────────────────────────────────────────
+
+/// Cliente final de un negocio. Reserva sin cuenta; se identifica por su celular.
+model Customer {
+  id              String    @id @default(uuid())
+  businessId      String    @map("business_id")
+  name            String
+  /// Opcional: las reservas por WhatsApp pueden no traer correo
+  email           String?
+  /// Formato E.164, p. ej. +573001234567
+  phone           String
+  /// El cliente aceptó recibir avisos por WhatsApp de este negocio
+  whatsappOptIn   Boolean   @default(false) @map("whatsapp_opt_in")
+  whatsappOptInAt DateTime? @map("whatsapp_opt_in_at")
+  /// Notas internas del negocio sobre el cliente
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@unique([businessId, phone])
+  @@map("customers")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  WEB
+  PANEL
+  WHATSAPP
+}
+
+/// La restricción appointments_no_overlap (SQL en la migración) impide que dos
+/// citas activas del mismo recurso se crucen en el tiempo.
+model Appointment {
+  id          String            @id @default(uuid())
+  businessId  String            @map("business_id")
+  resourceId  String            @map("resource_id")
+  serviceId   String            @map("service_id")
+  customerId  String            @map("customer_id")
+  startsAt    DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime          @map("ends_at") @db.Timestamptz(3)
+  status      AppointmentStatus
+  /// Precio del servicio al momento de reservar (COP)
+  price       Int
+  source      AppointmentSource
+  notes       String?
+  /// Token del enlace privado con el que el cliente ve o cancela su cita
+  manageToken String            @unique @map("manage_token")
+  cancelledAt DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, startsAt])
+  @@index([resourceId, startsAt])
+  @@map("appointments")
+}
+
+/// Bloqueo de tiempo de un recurso (vacaciones, mantenimiento, diligencias…)
+model TimeOff {
+  id         String   @id @default(uuid())
+  businessId String   @map("business_id")
+  resourceId String   @map("resource_id")
+  startsAt   DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt     DateTime @map("ends_at") @db.Timestamptz(3)
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, startsAt])
+  @@map("time_offs")
+}
+
+// ─── Correos ────────────────────────────────────────────────
+
+enum EmailStatus {
+  SENT
+  FAILED
+  /// Sin SMTP configurado: el correo se guardó en backend/.emails (desarrollo)
+  PREVIEW
+}
+
+/// Registro de cada correo enviado, para depurar entregas.
+model EmailLog {
+  id         String      @id @default(uuid())
+  businessId String?     @map("business_id")
+  to         String
+  subject    String
+  type       String
+  status     EmailStatus
+  error      String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  @@index([businessId, createdAt])
+  @@map("email_logs")
+}
+
+// ─── WhatsApp ───────────────────────────────────────────────
+
+/// Conversación del bot con un número (una por celular, en toda la plataforma)
+model WhatsappSession {
+  /// Celular en E.164 (+573001234567)
+  phone         String    @id
+  /// Negocio con el que está conversando
+  businessId    String?   @map("business_id")
+  /// Paso del bot y selecciones parciales (servicio, día, hora…)
+  state         Json      @default("{}")
+  /// Último mensaje del cliente: define la ventana de 24 h de Meta
+  lastInboundAt DateTime? @map("last_inbound_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("whatsapp_sessions")
+}
+
+enum WhatsappDirection {
+  IN
+  OUT
+}
+
+enum WhatsappStatus {
+  RECEIVED
+  SENT
+  FAILED
+  /// Sin token configurado: el mensaje se guardó en backend/.whatsapp (desarrollo)
+  PREVIEW
+}
+
+/// Registro de mensajes de WhatsApp entrantes y salientes, para depurar
+model WhatsappMessage {
+  id          String            @id @default(uuid())
+  direction   WhatsappDirection
+  phone       String
+  businessId  String?           @map("business_id")
+  /// template · text · interactive
+  kind        String
+  content     Json
+  status      WhatsappStatus
+  error       String?
+  waMessageId String?           @map("wa_message_id")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  @@index([phone, createdAt])
+  @@map("whatsapp_messages")
+}
+
+// ─── Superadministración ────────────────────────────────────
+
+enum AdminActionType {
+  SUSPEND_BUSINESS
+  REACTIVATE_BUSINESS
+}
+
+/// Historial de acciones del superadministrador sobre los negocios
+model AdminAction {
+  id         String          @id @default(uuid())
+  adminId    String          @map("admin_id")
+  businessId String          @map("business_id")
+  type       AdminActionType
+  reason     String?
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  admin    User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@map("admin_actions")
+}
+
+// ─── Suscripciones del SaaS ─────────────────────────────────
+
+enum PlanCode {
+  BASIC
+  PRO
+  PREMIUM
+}
+
+/// Planes que se ofrecen al crear un negocio (se insertan en la migración)
+model Plan {
+  id           String   @id @default(uuid())
+  code         PlanCode @unique
+  name         String
+  description  String
+  /// Precio mensual en pesos colombianos (COP)
+  priceMonthly Int      @map("price_monthly")
+  /// Lista de textos que se muestran en la tarjeta del plan
+  features     Json
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+enum SubscriptionStatus {
+  /// Plan elegido, falta pagar
+  PENDING_PAYMENT
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+/// Una suscripción por negocio. Se paga antes de crear el negocio: mientras
+/// tanto `businessId` es null y pertenece al usuario que la contrató.
+model Subscription {
+  id                 String             @id @default(uuid())
+  userId             String             @map("user_id")
+  businessId         String?            @unique @map("business_id")
+  planId             String             @map("plan_id")
+  status             SubscriptionStatus @default(PENDING_PAYMENT)
+  currentPeriodStart DateTime?          @map("current_period_start")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  /// Regalada por la plataforma (p. ej. negocios creados antes de las suscripciones)
+  isComplimentary    Boolean            @default(false) @map("is_complimentary")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business?             @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  plan     Plan                  @relation(fields: [planId], references: [id])
+  payments SubscriptionPayment[]
+
+  @@index([userId, businessId])
+  @@map("subscriptions")
+}
+
+enum PaymentStatus {
+  APPROVED
+  DECLINED
+}
+
+enum PaymentProvider {
+  /// Pago de prueba: no se cobra nada
+  SIMULATED
+  WOMPI
+}
+
+/// Intento de pago de una suscripción. Nunca se guarda el número de la tarjeta.
+model SubscriptionPayment {
+  id             String          @id @default(uuid())
+  subscriptionId String          @map("subscription_id")
+  /// Valor en COP
+  amount         Int
+  status         PaymentStatus
+  provider       PaymentProvider
+  /// Referencia de la transacción en la pasarela
+  reference      String          @unique
+  cardBrand      String?         @map("card_brand")
+  cardLast4      String?         @map("card_last4")
+  failureReason  String?         @map("failure_reason")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, createdAt])
+  @@index([status, createdAt])
+  @@map("subscription_payments")
+}
