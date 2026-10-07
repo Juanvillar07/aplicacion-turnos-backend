@@ -25,6 +25,7 @@ model User {
   memberships     Membership[]
   resources       Resource[]
   tokens          UserToken[]
+  emailCode       EmailVerificationCode?
   invitationsSent Invitation[]
   adminActions    AdminAction[]
   subscriptions   Subscription[]
@@ -35,6 +36,26 @@ model User {
 enum UserTokenType {
   VERIFY_EMAIL
   RESET_PASSWORD
+}
+
+/// Código de 6 dígitos para verificar el correo (uno vigente por usuario).
+/// Solo se guarda el HMAC del código, nunca el código.
+model EmailVerificationCode {
+  id         String   @id @default(uuid())
+  userId     String   @unique @map("user_id")
+  codeHash   String   @map("code_hash")
+  /// Correo al que se envió: si el usuario lo cambia, el código deja de valer
+  email      String
+  expiresAt  DateTime @map("expires_at")
+  /// Intentos fallidos (con 5 hay que pedir otro código)
+  attempts   Int      @default(0)
+  /// Para limitar los reenvíos (uno por minuto)
+  lastSentAt DateTime @map("last_sent_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_codes")
 }
 
 /// Enlaces de un solo uso enviados por correo. Solo se guarda el hash del token.

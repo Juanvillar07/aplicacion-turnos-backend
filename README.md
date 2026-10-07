@@ -114,9 +114,18 @@ No hay registro libre: las cuentas se crean al **crear un negocio** (`/crear-neg
 
 Pasos del asistente:
 1. **Plan:** Básico ($39.900), Pro ($69.900) o Premium ($109.900) al mes. Los planes están en la tabla `plans` y se crean con la migración. Sus límites todavía no se aplican.
-2. **Cuenta:** nombre, email y contraseña.
-3. **Pago:** el plan elegido queda como suscripción `PENDING_PAYMENT`.
-4. **Negocio:** con la suscripción `ACTIVE` se crea el negocio, y la suscripción queda vinculada a él.
+2. **Cuenta:** nombre, email y contraseña. El plan elegido queda como suscripción `PENDING_PAYMENT`.
+3. **Verificación:** llega al correo un código de 6 dígitos que hay que escribir para continuar.
+4. **Pago:** activa la suscripción.
+5. **Negocio:** con la suscripción `ACTIVE` se crea el negocio, y la suscripción queda vinculada a él.
+
+**Verificación del correo:**
+- El código vence en **10 minutos**. Tras **5 intentos fallidos** hay que pedir otro, y se puede reenviar **una vez por minuto**.
+- En la tabla `email_verification_codes` solo se guarda un HMAC del código (con el id del usuario y `JWT_SECRET`), nunca el código.
+- Pagar o crear el negocio sin el correo verificado responde **403**.
+- Mientras la cuenta no esté verificada ni tenga negocios, se puede corregir el correo (`PATCH /api/auth/email`), y llega un código nuevo.
+- Las cuentas antiguas sin verificar ven un aviso en el panel con "Verificar ahora". Ya no hay enlace de verificación: `/verify-email` redirige al panel.
+- Las personas invitadas quedan verificadas al aceptar la invitación desde su correo.
 
 **Contraseñas:** al crear la cuenta (y al aceptar una invitación, restablecer o cambiar la contraseña) se escribe dos veces. Debe tener mínimo 8 caracteres, una mayúscula y un carácter especial. El formulario muestra los requisitos en vivo y el backend aplica la misma regla (`@IsStrongPassword()` en `common/validation`). Las contraseñas anteriores siguen sirviendo para iniciar sesión.
 
@@ -163,8 +172,10 @@ Ambos guards se aplican con el decorador `@BusinessScoped()`.
 | GET | `/api/auth/me` | autenticado | Usuario actual |
 | POST | `/api/auth/forgot-password` | — | Envía enlace para restablecer (misma respuesta exista o no el correo) |
 | POST | `/api/auth/reset-password` | — | `{ token, password }` |
-| POST | `/api/auth/verify-email` | — | `{ token }` |
-| POST | `/api/auth/resend-verification` | autenticado | Reenvía el enlace de verificación |
+| POST | `/api/auth/verify-email` | autenticado | `{ code }` (6 dígitos) → usuario verificado. 400 con los intentos restantes si falla |
+| GET | `/api/auth/verification-status` | autenticado | `{ hasActiveCode, resendAvailableAt }`; no envía nada |
+| POST | `/api/auth/resend-verification` | autenticado | Envía un código nuevo (429 si no ha pasado un minuto) |
+| PATCH | `/api/auth/email` | autenticado | `{ email }` · corrige el correo de una cuenta sin verificar y sin negocios; devuelve una sesión nueva |
 | PATCH | `/api/auth/password` | autenticado | `{ currentPassword, newPassword }` |
 | PATCH | `/api/auth/profile` | autenticado | `{ name }` |
 | POST | `/api/businesses` | autenticado | Crear negocio (queda como ADMIN; slug automático). Exige una suscripción pagada sin negocio; si no la hay, 402 |

@@ -46,6 +46,19 @@ export class UsersService {
     return toPublicUser(user);
   }
 
+  /** Cambia el correo; queda sin verificar hasta ingresar el código nuevo. */
+  async updateEmail(id: string, email: string): Promise<PublicUser> {
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { email, emailVerifiedAt: null },
+    });
+    return toPublicUser(user);
+  }
+
+  async hasMemberships(id: string): Promise<boolean> {
+    return (await this.prisma.membership.count({ where: { userId: id } })) > 0;
+  }
+
   async updateProfile(id: string, data: { name: string }): Promise<PublicUser> {
     const user = await this.prisma.user.update({ where: { id }, data });
     return toPublicUser(user);

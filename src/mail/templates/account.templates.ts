@@ -2,16 +2,16 @@ import { renderEmail } from './layout';
 
 const firstName = (name: string) => name.split(' ')[0];
 
-export function verifyEmailTemplate(name: string, url: string) {
+export function verifyEmailCodeTemplate(name: string, code: string) {
   return renderEmail({
-    subject: 'Confirma tu correo en AgendaBarrio',
-    preheader: 'Un clic para confirmar tu correo.',
+    subject: `${code} es tu código de AgendaBarrio`,
+    preheader: 'Escríbelo para confirmar tu correo.',
     heading: `Hola, ${firstName(name)}`,
     paragraphs: [
-      'Gracias por registrarte en AgendaBarrio. Confirma tu correo para que podamos avisarte de cada reserva y ayudarte si olvidas tu contraseña.',
+      'Escribe este código en AgendaBarrio para confirmar tu correo y continuar:',
     ],
-    button: { label: 'Confirmar mi correo', url },
-    note: 'El enlace vence en 24 horas. Si no creaste esta cuenta, ignora este mensaje.',
+    code,
+    note: 'El código vence en 10 minutos. Si no fuiste tú, ignora este mensaje: nadie podrá usar tu correo sin él.',
   });
 }
 

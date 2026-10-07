@@ -13,11 +13,12 @@ import { PublicUser } from '../users/entities/user.entity';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import {
+  ChangeEmailDto,
   ChangePasswordDto,
   ForgotPasswordDto,
   ResetPasswordDto,
-  TokenDto,
   UpdateProfileDto,
+  VerifyEmailCodeDto,
 } from './dto/account.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -76,19 +77,46 @@ export class AuthController {
 
   // ─── Verificación de correo ───
 
+  /** Código de 6 dígitos enviado al correo → devuelve el usuario verificado. */
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
-  verifyEmail(@Body() dto: TokenDto) {
-    return this.authService.verifyEmail(dto.token);
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  verifyEmail(
+    @CurrentUser() user: PublicUser,
+    @Body() dto: VerifyEmailCodeDto,
+  ) {
+    return this.authService.verifyEmail(user.id, dto.code);
   }
 
+  /** ¿Ya hay un código vigente? No envía nada (no cuenta para el límite de reenvíos). */
+  @Get('verification-status')
+  @UseGuards(JwtAuthGuard)
+  verificationStatus(@CurrentUser() user: PublicUser) {
+    return this.authService.verificationStatus(user);
+  }
+
+  /** Código nuevo (uno por minuto). */
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   async resendVerification(@CurrentUser() user: PublicUser) {
-    await this.authService.resendVerification(user.id);
-    return { message: 'Te enviamos un nuevo enlace de verificación.' };
+    const { resendAvailableAt } = await this.authService.resendVerification(
+      user.id,
+    );
+    return {
+      message: `Te enviamos un código nuevo a ${user.email}.`,
+      resendAvailableAt,
+    };
+  }
+
+  /** Corrige el correo de una cuenta aún sin verificar y sin negocios. */
+  @Patch('email')
+  @UseGuards(JwtAuthGuard)
+  @Throttle(STRICT)
+  changeEmail(@CurrentUser() user: PublicUser, @Body() dto: ChangeEmailDto) {
+    return this.authService.changeEmail(user.id, dto.email);
   }
 
   // ─── Cuenta ───

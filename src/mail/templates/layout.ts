@@ -19,6 +19,8 @@ export interface EmailContent {
   paragraphs: string[];
   /** Filas "etiqueta: valor" en un recuadro (p. ej. detalles de la cita) */
   details?: [string, string][];
+  /** Código destacado (p. ej. verificación de correo) */
+  code?: string;
   button?: { label: string; url: string };
   /** Nota pequeña bajo el botón */
   note?: string;
@@ -60,6 +62,10 @@ export function renderEmail(content: EmailContent): RenderedEmail {
       </table>`
     : '';
 
+  const code = content.code
+    ? `<p style="margin:8px 0 24px;padding:16px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa;text-align:center;font-family:'SFMono-Regular',Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:10px;color:#18181b">${e(content.code)}</p>`
+    : '';
+
   const button = content.button
     ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px"><tr>
         <td style="border-radius:8px;background:${BRAND}">
@@ -88,7 +94,7 @@ export function renderEmail(content: EmailContent): RenderedEmail {
         </td></tr>
         <tr><td style="background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px 28px">
           <h1 style="margin:0 0 16px;font-size:21px;line-height:28px;color:#18181b">${e(content.heading)}</h1>
-          ${paragraphs}${details}${button}${note}
+          ${paragraphs}${code}${details}${button}${note}
         </td></tr>
         <tr><td style="padding:20px 4px;font-size:12px;line-height:18px;color:#a1a1aa;text-align:center">${footer}</td></tr>
       </table>
@@ -102,6 +108,7 @@ export function renderEmail(content: EmailContent): RenderedEmail {
     '',
     ...content.paragraphs,
     '',
+    ...(content.code ? [content.code, ''] : []),
     ...(content.details ?? []).map(([l, v]) => `${l}: ${v}`),
     ...(content.button
       ? ['', `${content.button.label}: ${content.button.url}`]

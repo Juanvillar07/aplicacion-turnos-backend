@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -106,6 +107,7 @@ export class SubscriptionsService {
   }
 
   async pay(userId: string, subscriptionId: string, dto: PaySubscriptionDto) {
+    await this.assertEmailVerified(userId);
     const subscription = await this.prisma.subscription.findFirst({
       where: { id: subscriptionId, userId, businessId: null },
       include: { plan: true },
@@ -218,9 +220,21 @@ export class SubscriptionsService {
 
   /** Verificación previa (sin transacción) para fallar antes de crear nada. */
   async assertCanCreateBusiness(userId: string) {
+    await this.assertEmailVerified(userId);
     const ready = await this.prisma.subscription.count({
       where: { userId, businessId: null, status: SubscriptionStatus.ACTIVE },
     });
     if (ready === 0) throw new SubscriptionRequiredException();
+  }
+
+  /** El pago y el negocio quedan a nombre de un correo confirmado. */
+  private async assertEmailVerified(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailVerifiedAt: true },
+    });
+    if (!user?.emailVerifiedAt) {
+      throw new ForbiddenException('Verifica tu correo para continuar');
+    }
   }
 }

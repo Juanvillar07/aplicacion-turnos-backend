@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -10,14 +11,12 @@ import { JwtService } from '@nestjs/jwt';
 import { UserTokenType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
-import {
-  resetPasswordTemplate,
-  verifyEmailTemplate,
-} from '../mail/templates/account.templates';
+import { resetPasswordTemplate } from '../mail/templates/account.templates';
 import { PublicUser, toPublicUser } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { EmailVerificationService } from './email-verification.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserTokensService } from './user-tokens.service';
 
@@ -38,6 +37,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly tokens: UserTokensService,
     private readonly mail: MailService,
+    private readonly emailVerification: EmailVerificationService,
     config: ConfigService,
   ) {
     this.appUrl = config.get('FRONTEND_URL', 'http://localhost:5173');
@@ -46,7 +46,9 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<AuthResponse> {
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) {
-      throw new ConflictException('El email ya está registrado');
+      throw new ConflictException(
+        'Este correo ya tiene una cuenta. Inicia sesión para continuar con tu registro.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, SALT_ROUNDS);
@@ -56,10 +58,12 @@ export class AuthService {
       password: hashedPassword,
     });
 
-    // En segundo plano: el registro no espera al correo
-    this.sendVerification(user).catch((e: Error) =>
-      this.logger.error(`Correo de verificación fallido: ${e.message}`),
-    );
+    // En segundo plano: el registro no espera al correo con el código
+    this.emailVerification
+      .send(user, { force: true })
+      .catch((e: Error) =>
+        this.logger.error(`Correo de verificación fallido: ${e.message}`),
+      );
     return this.buildAuthResponse(user);
   }
 
@@ -76,30 +80,48 @@ export class AuthService {
 
   // ─── Verificación de correo ──────────────────────────────
 
-  async resendVerification(userId: string): Promise<void> {
+  async resendVerification(userId: string) {
     const user = await this.usersService.findById(userId);
     if (!user) throw new UnauthorizedException();
     if (user.emailVerifiedAt) {
       throw new BadRequestException('Tu correo ya está verificado');
     }
-    await this.sendVerification(user);
+    return this.emailVerification.send(user);
   }
 
-  async verifyEmail(token: string): Promise<PublicUser> {
-    const userId = await this.tokens.consume(token, UserTokenType.VERIFY_EMAIL);
-    return this.usersService.markEmailVerified(userId);
+  verifyEmail(userId: string, code: string): Promise<PublicUser> {
+    return this.emailVerification.verify(userId, code);
   }
 
-  private async sendVerification(user: PublicUser) {
-    const token = await this.tokens.issue(user.id, UserTokenType.VERIFY_EMAIL);
-    await this.mail.send({
-      ...verifyEmailTemplate(
-        user.name,
-        `${this.appUrl}/verify-email?token=${token}`,
-      ),
-      to: user.email,
-      type: 'account.verify-email',
-    });
+  verificationStatus(user: PublicUser) {
+    return this.emailVerification.status(user);
+  }
+
+  /**
+   * Corrige el correo mientras la cuenta está a medio crear: sin verificar y
+   * sin negocios. Envía un código nuevo al correo nuevo. Devuelve una sesión
+   * nueva porque el JWT lleva el email.
+   */
+  async changeEmail(userId: string, email: string): Promise<AuthResponse> {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new UnauthorizedException();
+    if (
+      user.emailVerifiedAt ||
+      (await this.usersService.hasMemberships(userId))
+    ) {
+      throw new ForbiddenException(
+        'Tu correo ya está confirmado: no se puede cambiar desde aquí.',
+      );
+    }
+    if (email === user.email) {
+      throw new BadRequestException('Ese ya es tu correo');
+    }
+    if (await this.usersService.findByEmail(email)) {
+      throw new ConflictException('El email ya está registrado');
+    }
+    const updated = await this.usersService.updateEmail(userId, email);
+    await this.emailVerification.send(updated, { force: true });
+    return this.buildAuthResponse(updated);
   }
 
   // ─── Recuperar contraseña ────────────────────────────────

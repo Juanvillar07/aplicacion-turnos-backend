@@ -1,8 +1,27 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { IsStrongPassword } from '../../common/validation/strong-password.decorator';
 
 export class ForgotPasswordDto {
+  @IsEmail({}, { message: 'El email no es válido' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  email: string;
+}
+
+export class VerifyEmailCodeDto {
+  @Matches(/^\d{6}$/, { message: 'El código tiene 6 dígitos' })
+  code: string;
+}
+
+export class ChangeEmailDto {
   @IsEmail({}, { message: 'El email no es válido' })
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
