@@ -113,6 +113,14 @@ model Business {
   /// Avisos por WhatsApp a los clientes que lo aceptaron, y reservas por el bot
   whatsappEnabled  Boolean @default(false) @map("whatsapp_enabled")
 
+  // Perfil de la página pública
+  /// Presentación del negocio (hasta 600 caracteres)
+  description  String?
+  logoUrl      String? @map("logo_url")
+  instagramUrl String? @map("instagram_url")
+  facebookUrl  String? @map("facebook_url")
+  websiteUrl   String? @map("website_url")
+
   // Estado en la plataforma (lo gestiona el superadministrador)
   status          BusinessStatus @default(ACTIVE)
   suspendedAt     DateTime?      @map("suspended_at")
@@ -131,6 +139,8 @@ model Business {
   timeOffs     TimeOff[]
   adminActions AdminAction[]
   subscription Subscription?
+  photos       BusinessPhoto[]
+  reviews      Review[]
 
   @@index([status])
   @@index([createdAt])
@@ -283,6 +293,7 @@ model Customer {
 
   business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   appointments Appointment[]
+  reviews      Review[]
 
   @@unique([businessId, phone])
   @@map("customers")
@@ -305,28 +316,32 @@ enum AppointmentSource {
 /// La restricción appointments_no_overlap (SQL en la migración) impide que dos
 /// citas activas del mismo recurso se crucen en el tiempo.
 model Appointment {
-  id          String            @id @default(uuid())
-  businessId  String            @map("business_id")
-  resourceId  String            @map("resource_id")
-  serviceId   String            @map("service_id")
-  customerId  String            @map("customer_id")
-  startsAt    DateTime          @map("starts_at") @db.Timestamptz(3)
-  endsAt      DateTime          @map("ends_at") @db.Timestamptz(3)
-  status      AppointmentStatus
+  id                String            @id @default(uuid())
+  businessId        String            @map("business_id")
+  resourceId        String            @map("resource_id")
+  serviceId         String            @map("service_id")
+  customerId        String            @map("customer_id")
+  startsAt          DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt            DateTime          @map("ends_at") @db.Timestamptz(3)
+  status            AppointmentStatus
   /// Precio del servicio al momento de reservar (COP)
-  price       Int
-  source      AppointmentSource
-  notes       String?
+  price             Int
+  source            AppointmentSource
+  notes             String?
   /// Token del enlace privado con el que el cliente ve o cancela su cita
-  manageToken String            @unique @map("manage_token")
-  cancelledAt DateTime?         @map("cancelled_at") @db.Timestamptz(3)
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  manageToken       String            @unique @map("manage_token")
+  cancelledAt       DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  /// Enlace único para reseñar; se crea al marcar la cita como completada
+  reviewToken       String?           @unique @map("review_token")
+  reviewRequestedAt DateTime?         @map("review_requested_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  review   Review?
 
   @@index([businessId, startsAt])
   @@index([resourceId, startsAt])
@@ -536,4 +551,45 @@ model SubscriptionPayment {
   @@index([subscriptionId, createdAt])
   @@index([status, createdAt])
   @@map("subscription_payments")
+}
+
+// ─── Página pública y reseñas ───────────────────────────────
+
+/// Foto de la galería de la página pública (máximo 8 por negocio)
+model BusinessPhoto {
+  id         String   @id @default(uuid())
+  businessId String   @map("business_id")
+  url        String
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, sortOrder])
+  @@map("business_photos")
+}
+
+/// Reseña verificada: solo quien tuvo la cita completada, una por cita.
+model Review {
+  id            String    @id @default(uuid())
+  businessId    String    @map("business_id")
+  appointmentId String    @unique @map("appointment_id")
+  customerId    String    @map("customer_id")
+  /// 1 a 5 estrellas
+  rating        Int
+  comment       String?
+  /// Respuesta pública del negocio
+  reply         String?
+  repliedAt     DateTime? @map("replied_at")
+  /// Ocultada por el negocio (p. ej. ofensiva): no sale en la página ni en el promedio
+  hidden        Boolean   @default(false)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  customer    Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, hidden, createdAt])
+  @@map("reviews")
 }

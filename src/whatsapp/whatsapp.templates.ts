@@ -59,6 +59,16 @@ export const WHATSAPP_TEMPLATES = {
       'https://agendabarrio.co/cita/abc123',
     ],
   },
+  review: {
+    name: 'agenda_resena',
+    body: 'Hola {{1}}, gracias por visitar {{2}}.\n\n¿Cómo te fue con {{3}}? Tu opinión ayuda al negocio y a otros clientes. Califica tu visita aquí: {{4}}\n\nToma menos de un minuto.',
+    example: [
+      'Mateo',
+      'Barbería Don Juan',
+      'Corte clásico',
+      'https://agendabarrio.co/resena/abc123',
+    ],
+  },
 } satisfies Record<string, WhatsappTemplateDefinition>;
 
 export type WhatsappTemplateKey = keyof typeof WHATSAPP_TEMPLATES;

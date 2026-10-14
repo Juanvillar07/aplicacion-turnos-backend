@@ -22,6 +22,7 @@ SaaS multi-inquilino de agendamiento para microempresas locales (barberías, est
 | 6 | WhatsApp: avisos al cliente y bot de reservas por chat | ✅ |
 | 7 | Superadministrador: panel `/admin`, negocios, suspender/reactivar y métricas globales | ✅ (planes, prueba gratis y cobro: tras la pasarela de pagos) |
 | 7.1 | "Crear tu negocio": plan → cuenta → pago (simulado) → negocio; suscripción por negocio | ✅ (cobro real con la pasarela) |
+| E | Experiencia del cliente: página pública con logo, fotos, mapa y redes; reseñas verificadas; "Agregar a mi calendario" | ✅ (lista de espera: pendiente) |
 | 8 | Puesta en producción | |
 
 ## Requisitos
@@ -139,6 +140,32 @@ Si la persona cierra la página, al volver a iniciar sesión `/onboarding` retom
 
 Los negocios que ya existían recibieron un año del plan **Pro de cortesía**. El administrador ve su plan, la próxima renovación y los pagos en *Configuración → Suscripción*. El superadmin ve el plan de cada negocio, los ingresos del mes y los negocios por plan.
 
+## Página pública, reseñas y calendario
+
+**Página pública (`/b/:slug`).** El administrador la configura en *Configuración → Página pública*:
+- Logo, descripción (hasta 600 caracteres), Instagram, Facebook y sitio web.
+- Galería de hasta 8 fotos.
+
+La página muestra además un mapa de Google y el botón "Cómo llegar", a partir de la dirección y sin clave de API, más el teléfono, WhatsApp y las reseñas.
+
+**Imágenes:**
+- Se suben a `POST /businesses/:id/logo` y `/photos`, en multipart con el campo `file`, de hasta 5 MB.
+- `sharp` valida el formato real (JPG, PNG o WebP), corrige la rotación, reduce el tamaño (logo: 512 px; fotos: 1600 px), convierte a WebP y **quita los metadatos EXIF**, incluida la ubicación GPS.
+- Se guardan con `StorageService`. Hoy es `LocalDiskStorage`, que escribe en `uploads/` (ignorada por git) y el backend sirve en `/uploads` con caché de 30 días. Las URLs se arman con `PUBLIC_API_URL`.
+- Para producción basta una implementación de S3 en `StorageModule`.
+
+**Reseñas verificadas:**
+1. Al marcar una cita como **Completada** se crea un enlace único (`/resena/:token`, vale 30 días). Llega al cliente por correo, y por WhatsApp si lo aceptó (plantilla `agenda_resena`).
+2. El cliente califica de 1 a 5 estrellas con un comentario opcional. Solo una reseña por cita.
+3. La reseña se publica al instante, con el nombre abreviado ("Laura G."), y los administradores reciben un aviso.
+4. En *Panel → Reseñas* pueden **responder** (la respuesta se ve en la página) u **ocultar** (no sale ni cuenta en el promedio).
+
+**Calendario:**
+- `GET /public/appointments/:token/calendar.ics` genera el evento con recordatorio 1 hora antes, para Apple u Outlook.
+- El frontend también arma el enlace de Google Calendar.
+
+> Corre `npm run whatsapp:templates` para crear `agenda_resena` en Meta. Meta podría clasificarla como *marketing*.
+
 ## Superadministrador (plataforma)
 
 Es el dueño de AgendaBarrio, no de un negocio. Se asigna desde la terminal (a propósito no hay forma de hacerlo desde la web):
@@ -228,6 +255,22 @@ Ambos guards se aplican con el decorador `@BusinessScoped()`.
 | GET | `/api/admin/businesses/:id` | Ficha de soporte: equipo, uso, fallos recientes e historial |
 | POST | `/api/admin/businesses/:id/suspend` | `{ reason }` · suspende y avisa a los administradores |
 | POST | `/api/admin/businesses/:id/reactivate` | Reactiva y avisa a los administradores |
+
+**Página pública y reseñas:**
+
+| Método | Ruta | Acceso | Descripción |
+|--------|------|--------|-------------|
+| POST · DELETE | `/api/businesses/:businessId/logo` | ADMIN | Subir (multipart `file`) o quitar el logo |
+| GET · POST | `/api/businesses/:businessId/photos` | ADMIN | Fotos de la galería · subir una (máx. 8) |
+| PUT | `/api/businesses/:businessId/photos/order` | ADMIN | `{ ids }` en el nuevo orden |
+| DELETE | `/api/businesses/:businessId/photos/:photoId` | ADMIN | Borrar una foto (y su archivo) |
+| GET | `/api/businesses/:businessId/reviews?rating&page` | ADMIN | Reseñas (incluidas las ocultas) y resumen |
+| PATCH | `/api/businesses/:businessId/reviews/:id` | ADMIN | `{ reply?, hidden? }` |
+| GET | `/api/public/b/:slug/reviews?page` | — | Reseñas publicadas, de 5 en 5 |
+| GET · POST | `/api/public/reviews/:token` | — | Datos del enlace para calificar · `{ rating, comment? }` |
+| GET | `/api/public/appointments/:token/calendar.ics` | — | Evento de calendario de la cita |
+
+`PATCH /api/businesses/:businessId` acepta además `description`, `instagramUrl`, `facebookUrl` y `websiteUrl` (`""` o `null` los borra). `GET /api/public/b/:slug` incluye el logo, las fotos, la calificación y la primera página de reseñas.
 
 **Rutas públicas** (sin sesión, limitadas a 120 peticiones/min por IP y 10 reservas/min):
 

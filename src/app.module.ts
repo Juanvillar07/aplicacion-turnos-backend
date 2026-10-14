@@ -12,6 +12,8 @@ import { MailModule } from './mail/mail.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicBookingModule } from './public-booking/public-booking.module';
 import { ResourcesModule } from './resources/resources.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { StorageModule } from './storage/storage.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { TeamModule } from './team/team.module';
 import { TimeOffsModule } from './time-offs/time-offs.module';
@@ -31,6 +33,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     }),
     PrismaModule,
     MailModule,
+    StorageModule,
     WhatsappModule,
     UsersModule,
     AuthModule,
@@ -46,6 +49,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     WhatsappBotModule,
     AdminModule,
     SubscriptionsModule,
+    ReviewsModule,
   ],
 })
 export class AppModule {}

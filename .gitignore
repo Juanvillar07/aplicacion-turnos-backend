@@ -15,6 +15,9 @@ build/
 .emails/
 .whatsapp/
 
+# Logos y fotos subidos por los negocios (almacenamiento local en desarrollo)
+uploads/
+
 # Pruebas
 coverage/
 .nyc_output/

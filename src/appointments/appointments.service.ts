@@ -29,6 +29,7 @@ import {
   NotifyOptions,
 } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ReviewsService } from '../reviews/reviews.service';
 
 export const panelAppointmentInclude = {
   customer: { select: { id: true, name: true, email: true, phone: true } },
@@ -67,6 +68,7 @@ export class AppointmentsService {
     private readonly availability: AvailabilityService,
     private readonly customers: CustomersService,
     private readonly notifications: NotificationsService,
+    private readonly reviews: ReviewsService,
   ) {}
 
   /**
@@ -212,6 +214,9 @@ export class AppointmentsService {
         kind: 'cancelled',
         by: 'business',
       });
+    } else if (next === AppointmentStatus.COMPLETED) {
+      // "¿Cómo te fue?": enlace para reseñar (una sola vez por cita)
+      void this.reviews.requestReview(appointmentId);
     }
     return updated;
   }
